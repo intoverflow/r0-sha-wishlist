@@ -19,7 +19,7 @@ fn run_guest(num_iter: u32, method_id: &[u8], method_path: &str) -> Vec<u32> {
 }
 
 fn main() {
-    for num_iter in 1..3 {
+    for num_iter in [1, 2] {
         println!("num_iter = {}", num_iter);
 
         let host_sha2crate_output: Vec<u8> = {
