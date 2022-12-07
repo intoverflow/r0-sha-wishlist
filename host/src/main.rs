@@ -1,26 +1,52 @@
-// TODO: Update the name of the method loaded by the prover. E.g., if the method is `multiply`, replace `METHOD_NAME_ID` with `MULTIPLY_ID` and replace `METHOD_NAME_PATH` with `MULTIPLY_PATH`
-use methods::{METHOD_NAME_ID, METHOD_NAME_PATH};
 use risc0_zkvm::host::Prover;
-// use risc0_zkvm::serde::{from_slice, to_vec};
+use risc0_zkvm::serde::{from_slice, to_vec};
+use sha2::{Digest, Sha256};
+
+fn run_guest(num_iter: u32, method_id: &[u8], method_path: &str) -> Vec<u32> {
+    let image = std::fs::read(method_path).expect("image");
+    let mut prover = Prover::new(&image, method_id).expect("prover");
+
+    let mut guest_input = Vec::from([0u32; 9]);
+    guest_input[0] = num_iter;
+    prover
+        .add_input(to_vec(&guest_input).as_ref().expect("guest input"))
+        .expect("prover input");
+
+    let receipt = prover.run().expect("receipt");
+
+    from_slice(&receipt.get_journal_vec().expect("journal")).expect("result")
+}
 
 fn main() {
-    // Make the prover.
-    let method_code = std::fs::read(METHOD_NAME_PATH)
-        .expect("Method code should be present at the specified path; did you use the correct *_PATH constant?");
-    let mut prover = Prover::new(&method_code, METHOD_NAME_ID).expect(
-        "Prover should be constructed from valid method source code and corresponding method ID",
-    );
+    for num_iter in 1..3 {
+        println!("num_iter = {}", num_iter);
 
-    // TODO: Implement communication with the guest here
+        let host_output: Vec<u8> = {
+            let mut host_output = Vec::from([0u8; 32]);
 
-    // Run prover & generate receipt
-    let receipt = prover.run()
-        .expect("Code should be provable unless it 1) had an error or 2) overflowed the cycle limit. See `embed_methods_with_options` for information on adjusting maximum cycle count.");
+            for _i in 0..num_iter {
+                let mut hasher = Sha256::new();
+                hasher.update(&host_output);
+                host_output = hasher.finalize().to_vec();
+            }
 
-    // Optional: Verify receipt to confirm that recipients will also be able to verify your receipt
-    receipt.verify(METHOD_NAME_ID).expect(
-        "Code you have proven should successfully verify; did you specify the correct method ID?",
-    );
+            host_output
+        };
 
-    // TODO: Implement code for transmitting or serializing the receipt for other parties to verify here
+        {
+            println!("iter_sha2_bytes");
+            let journal = run_guest(num_iter, methods::ITER_SHA2_BYTES_ID, methods::ITER_SHA2_BYTES_PATH);
+            let guest_output: Vec<u8> = journal.iter().map(|x| x.to_be_bytes()).flatten().collect();
+            assert_eq!(host_output, guest_output);
+        };
+
+        {
+            println!("iter_sha2_words");
+            let journal = run_guest(num_iter, methods::ITER_SHA2_WORDS_ID, methods::ITER_SHA2_WORDS_PATH);
+            let guest_output: Vec<u8> = journal.iter().map(|x| x.to_be_bytes()).flatten().collect();
+            assert_eq!(host_output, guest_output);
+        };
+    }
+
+    println!("Done");
 }
