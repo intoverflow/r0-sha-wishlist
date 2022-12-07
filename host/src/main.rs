@@ -1,5 +1,6 @@
 use risc0_zkvm::host::Prover;
 use risc0_zkvm::serde::{from_slice, to_vec};
+use risc0_zkp::core::{sha::Sha, sha_cpu};
 use sha2::{Digest, Sha256};
 
 fn run_guest(num_iter: u32, method_id: &[u8], method_path: &str) -> Vec<u32> {
@@ -21,30 +22,47 @@ fn main() {
     for num_iter in 1..3 {
         println!("num_iter = {}", num_iter);
 
-        let host_output: Vec<u8> = {
-            let mut host_output = Vec::from([0u8; 32]);
+        let host_sha2crate_output: Vec<u8> = {
+            let mut host_sha2crate_output = Vec::from([0u8; 32]);
 
             for _i in 0..num_iter {
                 let mut hasher = Sha256::new();
-                hasher.update(&host_output);
-                host_output = hasher.finalize().to_vec();
+                hasher.update(&host_sha2crate_output);
+                host_sha2crate_output = hasher.finalize().to_vec();
             }
 
-            host_output
+            host_sha2crate_output
+        };
+
+        let host_r0_output: Vec<u8> = {
+            let hasher = sha_cpu::Impl { };
+            let mut hash = [0u32; 8];
+            for _i in 0 .. num_iter {
+                hash = hasher.hash_words(&hash).get().clone();
+            }
+
+            hash.iter().map(|x| x.to_be_bytes()).flatten().collect()
         };
 
         {
-            println!("iter_sha2_bytes");
+            println!("+ iter_sha2_bytes");
             let journal = run_guest(num_iter, methods::ITER_SHA2_BYTES_ID, methods::ITER_SHA2_BYTES_PATH);
             let guest_output: Vec<u8> = journal.iter().map(|x| x.to_be_bytes()).flatten().collect();
-            assert_eq!(host_output, guest_output);
+
+            println!("  ... checking host_sha2crate_output == guest_output");
+            assert_eq!(host_sha2crate_output, guest_output);
         };
 
         {
-            println!("iter_sha2_words");
+            println!("+ iter_sha2_words");
             let journal = run_guest(num_iter, methods::ITER_SHA2_WORDS_ID, methods::ITER_SHA2_WORDS_PATH);
             let guest_output: Vec<u8> = journal.iter().map(|x| x.to_be_bytes()).flatten().collect();
-            assert_eq!(host_output, guest_output);
+
+            println!("  ... checking host_r0_output == guest_output");
+            assert_eq!(host_r0_output, guest_output);
+
+            println!("  ... checking host_sha2crate_output == guest_output");
+            assert_eq!(host_sha2crate_output, guest_output);
         };
     }
 
